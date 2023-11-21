@@ -4,9 +4,9 @@ from torch.nn import functional as F
 
 batch_size = 32
 block_size = 8
-max_ters = 5000
+max_iters = 3000
 eval_interval = 300
-learning_rate = 1e-3
+learning_rate = 1e-2
 device = 'mps' if torch.backends.mps.is_built() else 'cpu'
 eval_iters = 200
 n_embd = 32
@@ -31,6 +31,7 @@ n = int(0.9*len(data))
 train_data = data[:n]
 val_data = data[n:]
 
+
 def get_batch(split):
     data = train_data if split == 'train' else val_data
     ix = torch.randint(len(data) - block_size, (batch_size, ))
@@ -38,6 +39,7 @@ def get_batch(split):
     y = torch.stack([data[i+1:i+block_size+1] for i in ix])
     x, y = x.to(device), y.to(device)
     return x, y
+
 
 @torch.no_grad()
 def estimate_loss():
@@ -52,6 +54,7 @@ def estimate_loss():
         out[split] = losses.mean()
     model.train()
     return out
+
 
 class Head(nn.Module):
 
@@ -75,13 +78,24 @@ class Head(nn.Module):
         out = wei @ v
         return out
 
+
+class MultiHeadAttention(nn.Module):
+
+    def __init__(self, num_heads, head_size):
+        super().__init__()
+        self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
+
+    def forward(self, x):
+        return torch.cat([h(x) for h in self.heads], dim=-1)
+
+
 class BigramLanguageModel(nn.Module):
 
     def __init__(self):
         super().__init__()
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
-        self.sa_head = Head(n_embd)
+        self.sa_head = MultiHeadAttention(4, n_embd//4)
         self.lm_head = nn.Linear(n_embd, vocab_size)
 
     def forward(self, idx, targets=None):
@@ -120,7 +134,7 @@ m = model.to(device)
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
-for iter in range(max_ters):
+for iter in range(max_iters):
 
     if iter % eval_interval == 0:
         losses = estimate_loss()
